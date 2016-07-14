@@ -104,7 +104,6 @@ public:
   }
 }; // class Pole
 
-
 class Panel 
 {    
 private:
@@ -232,33 +231,24 @@ public:
       for (size_t j = 1; j < er_jm - 2; j++) {
         er(i,j) += coeff1 * (h1(i,j-1) - h1(i-1,j-1) + h2(i,j) 
                              - h2(i-1,j-1) - h3(i-1,j-1) + h3(i-1,j));
-        if (er(i,j) != 0) {
-          cout << "i: " << i << " j: " << j << endl;
-          cout << "h1(i,j-1)" << h1(i,j-1) << endl;
-          cout << "h1(i-1,j-1)" << h1(i-1,j-1) << endl;
-          cout << "h2(i,j)" << h2(i,j) << endl;
-          cout << "h2(i-1,j-1)" <<  h2(i-1,j-1) << endl;
-          cout << "h3(i-1,j-1)" <<  h3(i-1,j-1) << endl;
-          cout << "h3(i-1,j)" <<  h3(i-1,j) << endl;
-        }
       }
     }
     
-    // for (size_t i = 1, j = er_jm-1; i < er_jm - 2; i++) {
-    //   er(i,j) += coeff1 * (h1(i,j-1) - h1(i-1,j-1) + h2(i,j) 
-    //                        - h2(i-1,j-1) - h3(i-1,j-1) + h3(i-1,j));
-    // }
+    for (size_t i = 1, j = er_jm-1; i < er_jm - 2; i++) {
+      er(i,j) += coeff1 * (h1(i,j-1) - h1(i-1,j-1) + h2(i,j) 
+                           - h2(i-1,j-1) - h3(i-1,j-1) + h3(i-1,j));
+    }
 
-    // for (size_t i = 9, j = er_jm-1; i < er_im - 1; i++) {
-    //   er(i,j) += coeff1 * (h1(i,j-1) - h1(i-1,j-1) + h2(i,j) 
-    //                        - h2(i-1,j-1) - h3(i-1,j-1) + h3(i-1,j));
-    // }
+    for (size_t i = 9, j = er_jm-1; i < er_im - 1; i++) {
+      er(i,j) += coeff1 * (h1(i,j-1) - h1(i-1,j-1) + h2(i,j) 
+                           - h2(i-1,j-1) - h3(i-1,j-1) + h3(i-1,j));
+    }
 
-    // const double coeff2 = 2. * sqrt(15. - 6 * sqrt(5)) * dt / (5 * ds);
-    // for (size_t i = er_jm-2, j = er_jm-2; i < er_im - 1; i += er_jm-2) {
-    //   er(i,j) += coeff2 * (h1(i,j-1) - h1(i-1,j-1) 
-    //                        + h2(i,j) - h2(i-1,j-1) - h3(i-1,j-1));
-    // }
+    const double coeff2 = 2. * sqrt(15. - 6 * sqrt(5)) * dt / (5 * ds);
+    for (size_t i = er_jm-2, j = er_jm-2; i < er_im - 1; i += er_jm-2) {
+      er(i,j) += coeff2 * (h1(i,j-1) - h1(i-1,j-1) 
+                           + h2(i,j) - h2(i-1,j-1) - h3(i-1,j-1));
+    }
   }
 
   void
@@ -299,64 +289,116 @@ public:
   }
 }; // class Panel
 
+class Earth {
+private:
+  array<Panel*, 5> panel;
+  Pole north, south;
+  double ds, dt;
+  double n, t;
+  
+public:
+  double
+  get_n() { return n; }
+
+  double
+  get_t() { return t; }
+
+  void  
+  init(size_t im, size_t jm, double ds_in, double dt_in) {
+    for (size_t i = 0; i < panel.size(); i++) {
+      panel[i] = new Panel(18, 10);
+      panel[i]->init(0);
+    }
+    
+    north.init(0);
+    south.init(0);
+
+    ds = ds_in;
+    dt = dt_in;
+
+    n = 0;
+    t = 0;
+  }
+
+  void 
+  sync_er() {
+    panel[0]->sync(*(panel[panel.size()-1]), *(panel[1]), north, south);
+    for (size_t i = 1; i < panel.size() - 1; i++) {
+      panel[i]->sync(*(panel[i-1]), *(panel[i+1]), north, south);
+    }
+    panel[panel.size()-1]->sync(*(panel[panel.size()-2]), *(panel[0]), north, south);
+  }
+
+  void 
+  sync_h() {
+    array<double, 5> north_buf, south_buf;
+    for (size_t i = 0; i < panel.size(); i++) {
+      north_buf[i] = panel[i]->get_pole_h1();
+      south_buf[i] = panel[i]->get_pole_h3();
+    }
+    north.set_h(north_buf);
+    south.set_h(south_buf);
+  }
+
+  void
+  update_er() {
+    for (size_t i = 0; i < panel.size(); i++) {
+      panel[i]->update_er(ds, dt);
+    }
+    north.update_er(ds, dt);
+    south.update_er(ds, dt);
+  }
+
+  void  
+  update_h() {
+    for (size_t i = 0; i < panel.size(); i++) {
+      panel[i]->update_h1(ds, dt);
+      panel[i]->update_h2(ds, dt);
+      panel[i]->update_h3(ds, dt);
+    }
+  }
+
+  void
+  step() {
+    sync_h();
+    update_er();
+    n += 0.5;
+    t = dt * n;
+
+    sync_er();
+    update_h();
+    n += 0.5;
+    t = dt * n;
+  }
+
+  void
+  write_field(string prefix = string()) {
+    array<string, 5> fname;
+    for (size_t i = 0; i < panel.size(); i++) {
+      fname[i] = prefix + string("panel") + to_string(i) + string(".h5");
+      panel[i]->write(fname[i]);
+    }
+    
+    string fname_np("north.h5");
+    north.write(prefix + fname_np);
+    string fname_sp("south.h5");
+    north.write(prefix + fname_sp);
+  }
+}; // class Earth
+
 int 
 main(int argc, char* argv[]) {
-  double ds = 4e-2;
-  double dt = 2e-2;
+  double ds = 3.2e-2;
+  double dt = 1.6e-2;
 
-  // for 642 cells
-  array<Panel*, 5> panel;
-  for (size_t i = 0; i < panel.size(); i++) {
-    panel[i] = new Panel(18, 10);
-    panel[i]->init(0);
+  Earth earth;
+  earth.init(18, 10, ds, dt);
+
+  for (int n = earth.get_n(); n < 100; n++) {
+    earth.step();
   }
 
-  Pole north = Pole();
-  Pole south = Pole();
-  north.init(0);
-  south.init(0);
-
-  // syncronization of er
-  panel[0]->sync(*(panel[panel.size()-1]), *(panel[1]), north, south);
-  for (size_t i = 1; i < panel.size() - 1; i++) {
-    panel[i]->sync(*(panel[i-1]), *(panel[i+1]), north, south);
-  }
-  panel[panel.size()-1]->sync(*(panel[panel.size()-2]), *(panel[0]), north, south);
-
-  // update h
-  for (size_t i = 0; i < panel.size(); i++) {
-    panel[i]->update_h1(ds, dt);
-    panel[i]->update_h2(ds, dt);
-    panel[i]->update_h3(ds, dt);
-  }
-  
-  // syncronization of h
-  array<double, 5> north_buf, south_buf;
-  for (size_t i = 0; i < panel.size(); i++) {
-       north_buf[i] = panel[i]->get_pole_h1();
-       south_buf[i] = panel[i]->get_pole_h3();
-  }
-  north.set_h(north_buf);
-  south.set_h(south_buf);
-
-  // update er
-  for (size_t i = 0; i < panel.size(); i++) {
-    panel[i]->update_er(ds, dt);
-  }
-  north.update_er(ds, dt);
-  south.update_er(ds, dt);
-
-  // output ot file
-  array<string, 5> fname;
-  for (size_t i = 0; i < panel.size(); i++) {
-    fname[i] = string("panel") + to_string(i) + string(".h5");
-    panel[i]->write(fname[i]);
-  }
-
-  string fname_np("north.h5");
-  north.write(fname_np);
-  string fname_sp("south.h5");
-  north.write(fname_sp);
+  earth.write_field();
 
   return EXIT_SUCCESS;
 }
